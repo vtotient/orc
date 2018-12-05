@@ -1,0 +1,280 @@
+                  2   $LIST
+0000              4   
+0000              5   TIMER0_RELOAD_L DATA 0xf2
+0000              6   TIMER1_RELOAD_L DATA 0xf3
+0000              7   TIMER0_RELOAD_H DATA 0xf4
+0000              8   TIMER1_RELOAD_H DATA 0xf5
+0000              9   
+0000             10   CLK           EQU 22118400 ; Microcontroller system crystal frequency in Hz
+0000             11   TIMER1_RATE   EQU 4096     ; 2048Hz squarewave (peak amplitude of CEM-1203 speaker)
+0000             12   TIMER1_RELOAD EQU ((65536-(CLK/TIMER1_RATE)))
+0000             13   TIMER2_RATE   EQU 1000     ; 1000Hz, for a timer tick of 1ms
+0000             14   TIMER2_RELOAD EQU ((65536-(CLK/TIMER2_RATE)))
+0000             15   
+0000             16   SOUND_OUT     equ P3.7
+0000             17   
+0000             18   BUTTON_ONE equ P4.5
+0000             19   BUTTON_TWO equ P2.5
+0000             20   BUTTON_THREE equ P2.6
+0000             21   
+0000             22   org 0x0000
+0000 0201F8      23       ljmp main
+0003             24            
+001B             25   org 0x001B
+001B 020103      26            ljmp Timer1_ISR
+001E             27            
+002B             28   org 0x002B
+002B 02011B      29            ljmp Timer2_ISR
+002E             30   
+0030             31   dseg at 0x30
+0030             32   Count_one: ds 2
+0032             33   Count_two: ds 2
+0034             34   Count_three: ds 2
+0036             35   
+0000             36   bseg
+0000             37   flag_one: dbit 1
+0001             38   flag_two: dbit 1
+0002             39   flag_three: dbit 1
+0003             40   
+002E             41   cseg
+002E             42   LCD_RS equ P1.1
+002E             43   LCD_RW equ P1.2
+002E             44   LCD_E  equ P1.3
+002E             45   LCD_D4 equ P3.2
+002E             46   LCD_D5 equ P3.3
+002E             47   LCD_D6 equ P3.4
+002E             48   LCD_D7 equ P3.5
+002E             49   
+                 51   $LIST
+00EC             53   
+00EC             54   ;---------------------------------;
+00EC             55   ; Routine to initialize the ISR   ;
+00EC             56   ; for timer 1                    ;
+00EC             57   ;---------------------------------;
+00EC             58   Timer1_Init:
+00EC E589        59            mov a, TMOD
+00EE 540F        60            anl a, #0x0f
+00F0 4410        61            orl a, #0x10
+00F2 F589        62            mov TMOD, a
+00F4 758DEA      63            mov TH1, #high(TIMER1_RELOAD)
+00F7 758BE8      64            mov TL1, #low(TIMER1_RELOAD)
+00FA 75F5EA      65            mov TIMER1_RELOAD_H, #high(TIMER1_RELOAD)
+00FD 75F3E8      66            mov TIMER1_RELOAD_L, #low(TIMER1_RELOAD)
+0100 D2AB        67       setb ET1
+0102 22          68            ret
+0103             69   
+0103             70   ;---------------------------------;
+0103             71   ; ISR for timer 1.                ;
+0103             72   ;---------------------------------;
+0103             73   Timer1_ISR:
+0103 B2B7        74            cpl SOUND_OUT
+0105 32          75            reti
+0106             76   
+0106             77   ;---------------------------------;
+0106             78   ; Routine to initialize the ISR   ;
+0106             79   ; for timer 2                     ;
+0106             80   ;---------------------------------;
+0106             81   Timer2_Init:
+0106 75C800      82            mov T2CON, #0
+0109 75CDA9      83            mov TH2, #high(TIMER2_RELOAD)
+010C 75CC9A      84            mov TL2, #low(TIMER2_RELOAD)
+010F 75CBA9      85            mov RCAP2H, #high(TIMER2_RELOAD)
+0112 75CA9A      86            mov RCAP2L, #low(TIMER2_RELOAD)
+0115 E4          87            clr a
+0116 D2AD        88       setb ET2
+0118 D2CA        89       setb TR2
+011A 22          90            ret
+011B             91   
+011B             92   ;---------------------------------;
+011B             93   ; ISR for timer 2                 ;
+011B             94   ;---------------------------------;
+011B             95   Timer2_ISR:
+011B C2CF        96            clr TF2
+011D C0E0        97            push acc
+011F C0D0        98            push psw
+0121             99            
+0121            100   Inc_Count_one:
+0121 300008     101            jnb flag_one, Inc_Count_two
+0124 0530       102            inc Count_one+0
+0126 E530       103            mov a, Count_one+0
+0128 7002       104            jnz Inc_Count_two
+012A 0531       105            inc Count_one+1
+012C            106            
+012C            107   Inc_Count_two:
+012C 300108     108            jnb flag_two, Inc_Count_three
+012F 0532       109            inc Count_two+0
+0131 E532       110            mov a, Count_two+0
+0133 7002       111            jnz Inc_Count_three
+0135 0533       112            inc Count_two+1
+0137            113   
+0137            114   Inc_Count_three:
+0137 300208     115            jnb flag_three, Check_Count_one
+013A 0534       116            inc Count_three+0
+013C E534       117            mov a, Count_three+0
+013E 7002       118            jnz Check_Count_one
+0140 0535       119            inc Count_three+1
+0142            120   
+0142            121   Check_Count_one:
+0142 E530       122            mov a, Count_one+0
+0144 B42C0E     123            cjne a, #low(300), Check_Count_two
+0147 E531       124            mov a, Count_one+1
+0149 B40109     125            cjne a, #high(300), Check_Count_two
+014C            126            
+014C B28E       127            cpl TR1
+014E C200       128            clr flag_one
+0150 E4         129            clr a
+0151 F530       130            mov Count_one+0, a
+0153 F531       131            mov Count_one+1, a
+0155            132            
+0155            133   Check_Count_two:
+0155 E532       134            mov a, Count_two+0
+0157 B4E80E     135            cjne a, #low(1000), Check_Count_three
+015A E533       136            mov a, Count_two+1
+015C B40309     137            cjne a, #high(1000), Check_Count_three
+015F            138   
+015F B28E       139            cpl TR1
+0161 C201       140            clr flag_two
+0163 E4         141            clr a
+0164 F532       142            mov Count_two+0, a
+0166 F533       143            mov Count_two+1, a
+0168            144            
+0168            145   Check_Count_three:
+0168 E534       146            mov a, Count_three+0
+016A B49607     147            cjne a, #low(150), Check_Count_three_2
+016D E535       148            mov a, Count_three+1
+016F B40002     149            cjne a, #high(150), Check_Count_three_2
+0172 B28E       150            cpl TR1
+0174            151   Check_Count_three_2:
+0174 E534       152            mov a, Count_three+0
+0176 B42C07     153            cjne a, #low(300), Check_Count_three_3
+0179 E535       154            mov a, Count_three+1
+017B B40102     155            cjne a, #high(300), Check_Count_three_3
+017E            156   
+017E            157            ; If you want to change the pitch
+017E            158            ; mov TH1, #high(65536-(CLK/(2637*2)))
+017E            159            ; mov TL1, #low(65536-(CLK/(2637*2)))
+017E            160            ; mov TIMER1_RELOAD_H, #high(65536-(CLK/(2637*2)))
+017E            161            ; mov TIMER1_RELOAD_L, #low(65536-(CLK/(2637*2)))
+017E            162   
+017E B28E       163            cpl TR1
+0180            164   Check_Count_three_3:
+0180 E534       165            mov a, Count_three+0
+0182 B4C207     166            cjne a, #low(450), Check_Count_three_4
+0185 E535       167            mov a, Count_three+1
+0187 B40102     168            cjne a, #high(450), Check_Count_three_4
+018A B28E       169            cpl TR1
+018C            170   Check_Count_three_4:
+018C E534       171            mov a, Count_three+0
+018E B45807     172            cjne a, #low(600), Check_Count_three_5
+0191 E535       173            mov a, Count_three+1
+0193 B40202     174            cjne a, #high(600), Check_Count_three_5
+0196 B28E       175            cpl TR1
+0198            176   Check_Count_three_5:
+0198 E534       177            mov a, Count_three+0
+019A B4EE07     178            cjne a, #low(750), Check_Count_three_6
+019D E535       179            mov a, Count_three+1
+019F B40202     180            cjne a, #high(750), Check_Count_three_6
+01A2 B28E       181            cpl TR1
+01A4            182   Check_Count_three_6:
+01A4 E534       183            mov a, Count_three+0
+01A6 B48407     184            cjne a, #low(900), Check_Count_three_7
+01A9 E535       185            mov a, Count_three+1
+01AB B40302     186            cjne a, #high(900), Check_Count_three_7
+01AE B28E       187            cpl TR1
+01B0            188   Check_Count_three_7:
+01B0 E534       189            mov a, Count_three+0
+01B2 B41A07     190            cjne a, #low(1050), Check_Count_three_8
+01B5 E535       191            mov a, Count_three+1
+01B7 B40402     192            cjne a, #high(1050), Check_Count_three_8
+01BA B28E       193            cpl TR1
+01BC            194   Check_Count_three_8:
+01BC E534       195            mov a, Count_three+0
+01BE B4B007     196            cjne a, #low(1200), Check_Count_three_9
+01C1 E535       197            mov a, Count_three+1
+01C3 B40402     198            cjne a, #high(1200), Check_Count_three_9
+01C6 B28E       199            cpl TR1
+01C8            200   Check_Count_three_9:
+01C8 E534       201            mov a, Count_three+0
+01CA B44607     202            cjne a, #low(1350), Check_Count_three_10
+01CD E535       203            mov a, Count_three+1
+01CF B40502     204            cjne a, #high(1350), Check_Count_three_10
+01D2 B28E       205            cpl TR1
+01D4            206   Check_Count_three_10:
+01D4 E534       207            mov a, Count_three+0
+01D6 B4DC07     208            cjne a, #low(1500), Check_Count_three_11
+01D9 E535       209            mov a, Count_three+1
+01DB B40502     210            cjne a, #high(1500), Check_Count_three_11
+01DE B28E       211            cpl TR1
+01E0            212   Check_Count_three_11:
+01E0 E534       213            mov a, Count_three+0
+01E2 B4720E     214            cjne a, #low(1650), Timer2_ISR_done
+01E5 E535       215            mov a, Count_three+1
+01E7 B40609     216            cjne a, #high(1650), Timer2_ISR_done
+01EA B28E       217            cpl TR1
+01EC            218            
+01EC C202       219            clr flag_three
+01EE E4         220            clr a
+01EF F534       221            mov Count_three+0, a
+01F1 F535       222            mov Count_three+1, a
+01F3            223            
+01F3            224   Timer2_ISR_done:
+01F3 D0D0       225            pop psw
+01F5 D0E0       226            pop acc
+01F7 32         227            reti
+01F8            228   
+01F8            229   ;---------------------------------;
+01F8            230   ; Main program. Includes hardware ;
+01F8            231   ; initialization and 'forever'    ;
+01F8            232   ; loop.                           ;
+01F8            233   ;---------------------------------;
+01F8            234   main:
+01F8 75817F     235       mov SP, #0x7F
+01FB 1200EC     236       lcall Timer1_Init
+01FE 120106     237       lcall Timer2_Init
+0201 D2AF       238       setb EA
+0203 120088     239       lcall LCD_4BIT
+0206            240            
+0206            241   loop:
+0206 20C515     242            jb BUTTON_ONE, check_button_two
+0209 C002       243            push AR2
+020B 7A64       243            mov R2, #100
+020D 120039     243            lcall ?Wait_Milli_Seconds
+0210 D002       243            pop AR2
+0212 20C509     244            jb BUTTON_ONE, check_button_two
+0215            245            
+0215 E4         246            clr a
+0216 F530       247            mov Count_one+0, a
+0218 F531       248            mov Count_one+1, a
+021A D200       249            setb flag_one
+021C B28E       250            cpl TR1
+021E            251            
+021E            252   check_button_two:
+021E 20A515     253            jb BUTTON_TWO, check_button_three
+0221 C002       254            push AR2
+0223 7A64       254            mov R2, #100
+0225 120039     254            lcall ?Wait_Milli_Seconds
+0228 D002       254            pop AR2
+022A 20A509     255            jb BUTTON_TWO, check_button_three
+022D            256            
+022D E4         257            clr a
+022E F532       258            mov Count_two+0, a
+0230 F533       259            mov Count_two+1, a
+0232 D201       260            setb flag_two
+0234 B28E       261            cpl TR1
+0236            262            
+0236            263   check_button_three:
+0236 20A6CD     264            jb BUTTON_THREE, loop
+0239 C002       265            push AR2
+023B 7A64       265            mov R2, #100
+023D 120039     265            lcall ?Wait_Milli_Seconds
+0240 D002       265            pop AR2
+0242 20A6C1     266            jb BUTTON_THREE, loop
+0245            267   
+0245 E4         268            clr a
+0246 F534       269            mov Count_three+0, a
+0248 F535       270            mov Count_three+1, a
+024A D202       271            setb flag_three
+024C B28E       272            cpl TR1
+024E            273            
+024E 020206     274            ljmp loop
+0251            275   END

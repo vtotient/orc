@@ -1,0 +1,493 @@
+0000              1   ; Initial layout-Credit: Dr. Jesus C. Fraga 
+                  3   $LIST
+0000              5   
+0000              6   ; Reset vector
+0000              7   org 0x0000
+0000 02052C       8       ljmp Main
+0003              9       
+0003             10   ; External interrupt 0 vector (not used in this code)
+0003             11   org 0x0003
+0003 32          12            reti
+0004             13   
+0004             14   ; Timer/Counter 0 overflow interrupt vector
+000B             15   org 0x000B
+000B 32          16            reti
+000C             17   
+000C             18   ; External interrupt 1 vector (not used in this code)
+0013             19   org 0x0013
+0013 32          20            reti
+0014             21   
+0014             22   ; Timer/Counter 1 overflow interrupt vector (not used in this code)
+001B             23   org 0x001B
+001B 32          24            reti
+001C             25   
+001C             26   ; Serial port receive/transmit interrupt vector (not used in this code)
+0023             27   org 0x0023 
+0023 32          28            reti
+0024             29            
+0024             30   ; Timer/Counter 2 overflow interrupt vector
+002B             31   org 0x002B
+002B 020360      32            ljmp Timer2_ISR
+002E             33   
+002E             34   
+002E             35   
+002E             36   ; Include files
+                546   $LIST
+                 39   $LIST
+034C             41   
+034C             42   ; Symbolic constants
+034C             43   CLK     EQU 22118400
+034C             44   BAUD    EQU 115200
+034C             45   BRG_VAL EQU (0x100-(CLK/(16*BAUD)))
+034C             46   
+034C             47   ; Timer 2 
+034C             48   TIMER2_RATE   EQU 1000 
+034C             49   TIMER2_RELOAD EQU ((65536-(CLK/TIMER2_RATE)))
+034C             50   
+034C             51   ; This is for the seven segment display
+034C             52   SS_0    EQU #0x3f
+034C             53   SS_1     EQU #0x06
+034C             54   SS_2     EQU #0x5b
+034C             55   SS_3     EQU #0x4f
+034C             56   SS_4     EQU #0x66
+034C             57   SS_5     EQU #0x6d
+034C             58   SS_6     EQU #0x7d
+034C             59   SS_7     EQU #0x07
+034C             60   SS_8     EQU #0x7f
+034C             61   SS_9     EQU #0x67
+034C             62   SS_Err   EQU #0x79 ; This is for debugging purposes
+034C             63   
+034C             64   ; LCD hardware wiring
+034C             65   LCD_RS EQU P1.1
+034C             66   LCD_RW EQU P1.2
+034C             67   LCD_E  EQU P1.3
+034C             68   LCD_D4 EQU P3.2
+034C             69   LCD_D5 EQU P3.3
+034C             70   LCD_D6 EQU P3.4
+034C             71   LCD_D7 EQU P3.5
+034C             72   
+034C             73   ; ADC hardware wiring
+034C             74   CE_ADC  EQU P2.0
+034C             75   MY_MOSI EQU P2.1
+034C             76   MY_MISO EQU P2.2
+034C             77   MY_SCLK EQU P2.3
+034C             78   CHANGE_DISPLAY_BUTTON EQU P0.2
+034C             79   
+034C             80   ; Seven Segment Wiring
+034C             81   EN_DIG_1 EQU P2.7
+034C             82   EN_DIG_2 EQU P4.5
+034C             83   EN_DIG_3 EQU P4.4
+034C             84   SS_A      EQU P0.7
+034C             85   SS_B      EQU P0.6
+034C             86   SS_C      EQU P0.5
+034C             87   SS_D      EQU P0.4
+034C             88   SS_E      EQU P0.3
+034C             89   SS_F      EQU P0.2
+034C             90   SS_G      EQU P0.1
+034C             91   SS_DP     EQU P0.0
+034C             92   
+034C             93   ; Direct access variables (address 0x30 - 0x7F) used by math32 library
+0030             94   dseg at 30H
+0030             95   x:      ds 4
+0034             96   y:      ds 4
+0038             97   bcd:    ds 5
+003D             98   Result: ds 2
+003F             99   buffer: ds 30
+005D            100   display_mode: ds 1 ; This flag will tell us which "mode of display" we are in
+005E            101   svn_sg_dig:   ds 1 ; Seven segment digit flag. A 1 is digit 1, 2 is digit 2 and 3 is digit 3.
+005F            102                                   ; Using the LDT-M516RI seven segment display
+005F            103   
+0000            104   bseg
+0000            105   mf: dbit 1
+0001            106   
+034C            107   cseg
+034C            108   
+034C            109   ;---------------------------------;
+034C            110   ; Routine to initialize the ISR   ;
+034C            111   ; for timer 2                     ;
+034C            112   ;---------------------------------;
+034C            113   Timer2_Init:
+034C 75C800     114            mov T2CON, #0 ; Stop timer/counter.  Autoreload mode.
+034F 75CDA9     115            mov TH2, #high(TIMER2_RELOAD)
+0352 75CC9A     116            mov TL2, #low(TIMER2_RELOAD)
+0355            117            ; Set the reload value
+0355 75CBA9     118            mov RCAP2H, #high(TIMER2_RELOAD)
+0358 75CA9A     119            mov RCAP2L, #low(TIMER2_RELOAD)
+035B            120            ; Init One millisecond interrupt counter.  It is a 16-bit variable made with two 8-bit parts
+035B            121            
+035B            122            ; Enable the timer and interrupts
+035B D2AD       123       setb ET2  ; Enable timer 2 interrupt
+035D D2CA       124       setb TR2  ; Enable timer 2
+035F 22         125            ret
+0360            126   
+0360            127   ;---------------------------------;
+0360            128   ; ISR for timer 2                 ;
+0360            129   ;---------------------------------;
+0360            130   Timer2_ISR:
+0360 C2CF       131            clr TF2  ; Timer 2 doesn't clear TF2 automatically. Do it in ISR
+0362 B2B6       132            cpl P3.6 ; To check the interrupt rate with oscilloscope. It must be precisely a 1 ms pulse.
+0364            133            
+0364            134            ; The two registers used in the ISR must be saved in the stack
+0364 C0E0       135            push acc
+0366 C0D0       136            push psw
+0368            137   
+0368            138   Timer2_ISR_done:
+0368 D0D0       139            pop psw
+036A D0E0       140            pop acc
+036C 32         141            reti
+036D            142   
+036D            143   ; macro wouldn't work in LCD_4bit.inc ?
+036D            144   ;---------------------------------------------------------------------------
+036D            145   ;---------------------------------;
+036D            146   ; Send a BCD number to PuTTY      ;
+036D            147   ;---------------------------------;
+                148   Send_BCD mac
+                149   	push ar0
+                150   	mov r0, %0
+                151   	lcall ?Send_BCD
+                152   	pop ar0
+                153   endmac
+036D            154   
+036D            155   ?Send_BCD:
+036D C0E0       156            push acc
+036F            157            ; Write most significant digit
+036F E8         158            mov a, r0
+0370 C4         159            swap a
+0371 540F       160            anl a, #0fh
+0373 4430       161            orl a, #30h
+0375 1204A6     162            lcall putchar
+0378            163            ; write least significant digit
+0378 E8         164            mov a, r0
+0379 540F       165            anl a, #0fh
+037B 4430       166            orl a, #30h
+037D 1204A6     167            lcall putchar
+0380 D0E0       168            pop acc
+0382 22         169            ret
+0383            170   ;---------------------------------------------------------------------------
+0383            171   
+0383            172   
+0383            173   ; Adjusts the display_mode flag everytime the button is pushed. 
+0383            174   ; Initially set to zero in main
+0383            175   ; Modes are as follows:
+0383            176   ; Mode 1 == Degrees Celsius 
+0383            177   ; Mode 2 == Farenheit
+0383            178   ; Mode 3 == Kelvin
+0383            179   adjust_display_mode:
+0383 C0E0       180            push acc
+0385 7401       180            mov a, #1
+0387 14         180            dec a
+0388 1200BF     180            lcall ?Set_Cursor_2 ; Select column and row
+038B D0E0       180            pop acc
+038D C000       181            push ar0
+038F A85D       181            mov r0, display_mode
+0391 1200C6     181            lcall ?Display_BCD
+0394 D000       181            pop ar0
+0396 E55D       182            mov a, display_mode
+0398 2401       183       add a, #0x01
+039A C0E0       184            push acc
+039C 7401       184            mov a, #1
+039E 14         184            dec a
+039F 1200BF     184            lcall ?Set_Cursor_2 ; Select column and row
+03A2 D0E0       184            pop acc
+03A4 C000       185            push ar0
+03A6 F8         185            mov r0, a
+03A7 1200C6     185            lcall ?Display_BCD
+03AA D000       185            pop ar0
+03AC            186            
+03AC            187            ; check if we need to reset to mode 1. 
+03AC            188            ; i.e if we are in mode 3 we need to go to mode 1
+03AC B40404     189            cjne a, #0x04, Change_temp_display
+03AF 7401       190            mov a, #0x01 
+03B1 F55D       191            mov display_mode, a
+03B3            192            
+03B3            193   ; Change the format of temperature being displayed
+03B3            194   Change_temp_display:
+03B3 C0E0       195            push acc
+03B5 7408       195            mov a, #8
+03B7 14         195            dec a
+03B8 1200BF     195            lcall ?Set_Cursor_2 ; Select column and row
+03BB D0E0       195            pop acc 
+03BD            196            
+03BD            197            ; Check which mode we must display
+03BD E55D       198            mov a, display_mode
+03BF B40109     199            cjne a, #0x01, Check_Far
+03C2 C0E0       200            push acc
+03C4 7443       200            mov a, #67
+03C6 12007E     200            lcall ?WriteData
+03C9 D0E0       200            pop acc ; Ascii for 'C'
+03CB            201            
+03CB            202   Check_Far:
+03CB B40209     203            cjne a, #0x02, Check_K
+03CE C0E0       204            push acc
+03D0 7446       204            mov a, #70
+03D2 12007E     204            lcall ?WriteData
+03D5 D0E0       204            pop acc
+03D7            205            
+03D7            206   Check_K:
+03D7 B40309     207            cjne a, #0x03, return_to_main
+03DA C0E0       208            push acc
+03DC 744B       208            mov a, #75
+03DE 12007E     208            lcall ?WriteData
+03E1 D0E0       208            pop acc
+03E3            209   
+03E3            210   return_to_main:
+03E3 020578     211            ljmp Fetch_Voltage_Loop
+03E6            212   
+03E6            213   ; Sends 10-digit BCD number in bcd to the LCD
+03E6            214   Display_10_digit_BCD:
+03E6 C0E0       215            push acc
+03E8 7407       215            mov a, #7
+03EA 14         215            dec a
+03EB 1200BF     215            lcall ?Set_Cursor_2 ; Select column and row
+03EE D0E0       215            pop acc
+03F0 C000       216            push ar0
+03F2 A83C       216            mov r0, bcd+4
+03F4 1200C6     216            lcall ?Display_BCD
+03F7 D000       216            pop ar0
+03F9 C000       217            push ar0
+03FB A83B       217            mov r0, bcd+3
+03FD 1200C6     217            lcall ?Display_BCD
+0400 D000       217            pop ar0
+0402 C000       218            push ar0
+0404 A83A       218            mov r0, bcd+2
+0406 1200C6     218            lcall ?Display_BCD
+0409 D000       218            pop ar0
+040B C000       219            push ar0
+040D A839       219            mov r0, bcd+1
+040F 1200C6     219            lcall ?Display_BCD
+0412 D000       219            pop ar0
+0414 C000       220            push ar0
+0416 A838       220            mov r0, bcd+0
+0418 1200C6     220            lcall ?Display_BCD
+041B D000       220            pop ar0
+041D 22         221            ret
+041E            222   
+041E            223   ; Convert the voltage signal to a temperature in Celsius 
+041E            224   Convertor:
+041E 853D30     225            mov x+0, Result + 0
+0421 853E31     226            mov x+1, Result + 1
+0424 753200     227            mov x+2, #0x00
+0427 753300     228            mov x+3, #0x00
+042A            229            
+042A 75349A     230            mov y+0, #low (410 % 0x10000) 
+042D 753501     230            mov y+1, #high(410 % 0x10000) 
+0430 753600     230            mov y+2, #low (410 / 0x10000) 
+0433 753700     230            mov y+3, #high(410 / 0x10000) 
+0436 120256     231            lcall mul32 
+0439 7534FF     232            mov y+0, #low (1023 % 0x10000) 
+043C 753503     232            mov y+1, #high(1023 % 0x10000) 
+043F 753600     232            mov y+2, #low (1023 / 0x10000) 
+0442 753700     232            mov y+3, #high(1023 / 0x10000) 
+0445 1202E3     233            lcall div32
+0448            234            
+0448 753411     235            mov y+0, #low (273 % 0x10000) 
+044B 753501     235            mov y+1, #high(273 % 0x10000) 
+044E 753600     235            mov y+2, #low (273 / 0x10000) 
+0451 753700     235            mov y+3, #high(273 / 0x10000) 
+0454 1201C2     236            lcall sub32
+0457 1200DC     237            lcall hex2bcd
+045A 22         238            ret
+045B            239   
+045B            240   ; Some constant messages to be displayed
+045B            241   newline:
+045B 200D0A00   242       DB  ' ', '\r', '\n', 0
+045F            243   Screen_Format:
+045F 54656D70   244            db 'Temperature:', '\r', '\n', 0
+     65726174
+     7572653A
+     0D0A00
+046E            245   LCD_Message:
+046E 54656D70   246            db 'Temperature:', 0  
+     65726174
+     7572653A
+     00
+047B            247      
+047B            248   ; Send data to putty to be displayed or processed
+047B            249   Execute_Result:
+047B 12041E     250            lcall Convertor
+047E            251            
+047E C000       252            push ar0
+0480 A838       252            mov r0, bcd
+0482 12036D     252            lcall ?Send_BCD
+0485 D000       252            pop ar0          ; Send to PuTTy 
+0487            253            
+0487 90045B     254            mov DPTR, #newline
+048A 1204AE     255            lcall sendstring
+048D            256   
+048D 22         257            ret
+048E            258   
+048E            259   ; Configure the serial port and baud rate
+048E            260   InitSerialPort:
+048E            261       ; Since the reset button bounces, we need to wait a bit before
+048E            262       ; sending messages, otherwise we risk displaying gibberish!
+048E 79DE       263       mov R1, #222
+0490 78A6       264       mov R0, #166
+0492 D8FE       265       djnz R0, $   ; 3 cycles->3*45.21123ns*166=22.51519us
+0494 D9FA       266       djnz R1, $-4 ; 22.51519us*222=4.998ms
+0496            267       
+0496            268       ; Now we can proceed with the configuration
+0496 438780     269            orl     PCON,#0x80
+0499 759852     270            mov     SCON,#0x52
+049C 759B00     271            mov     BDRCON,#0x00
+049F 759AF4     272            mov     BRL,#BRG_VAL
+04A2 759B1E     273            mov     BDRCON,#0x1E ; BDRCON=BRR|TBCK|RBCK|SPD;
+04A5 22         274       ret
+04A6            275   
+04A6            276   ; Send a character using the serial port
+04A6            277   putchar:
+04A6 3099FD     278       jnb TI, putchar
+04A9 C299       279       clr TI
+04AB F599       280       mov SBUF, a
+04AD 22         281       ret
+04AE            282   
+04AE            283   ; Send a constant-zero-terminated string using the serial port
+04AE            284   SendString:
+04AE E4         285       clr A
+04AF 93         286       movc A, @A+DPTR
+04B0 6006       287       jz SendStringDone
+04B2 1204A6     288       lcall putchar
+04B5 A3         289       inc DPTR
+04B6 80F6       290       sjmp SendString
+04B8            291   
+04B8            292   SendStringDone:
+04B8 22         293       ret ; returns to main, not SendString
+04B9            294   
+04B9            295   ; Initialize the SPI. This is done in Main
+04B9            296   INIT_SPI:
+04B9 D2A2       297            setb MY_MISO ; Make MISO an input pin
+04BB C2A3       298            clr MY_SCLK  ; Mode 0,0 default
+04BD 22         299            ret
+04BE            300   
+04BE            301   ; Bit-Bang-Credit: Dr. Jesus C. Fraga
+04BE            302   ; Used for transmiting data between the MCP chip and the Atmel chip
+04BE            303   DO_SPI_G:
+04BE 7900       304            mov R1, #0 ; Received byte stored in R1
+04C0 7A08       305            mov R2, #8 ; Loop counter (8-bits)
+04C2            306   DO_SPI_G_LOOP:
+04C2 E8         307            mov a, R0 ; Byte to write is in R0
+04C3 33         308            rlc a ; Carry flag has bit to write
+04C4 F8         309            mov R0, a
+04C5 92A1       310            mov MY_MOSI, c
+04C7 D2A3       311            setb MY_SCLK ; Transmit
+04C9 A2A2       312            mov c, MY_MISO ; Read received bit
+04CB E9         313            mov a, R1 ; Save received bit in R1
+04CC 33         314            rlc a
+04CD F9         315            mov R1, a
+04CE C2A3       316            clr MY_SCLK
+04D0 DAF0       317            djnz R2, DO_SPI_G_LOOP
+04D2 22         318            ret
+04D3            319   
+04D3            320   ; More comunication between chips. This routine calls the bitbang and handles the transmition 
+04D3            321   ; of data. 
+04D3            322   Fetch_Voltage:
+04D3 C2A0       323            clr CE_ADC
+04D5 7801       324            mov R0, #00000001B ; Start bit:1
+04D7 1204BE     325            lcall DO_SPI_G
+04DA 7880       326            mov R0, #10000000B ; Single ended, read channel 0
+04DC 1204BE     327            lcall DO_SPI_G
+04DF E9         328            mov a, R1 ; R1 contains bits 8 and 9
+04E0 5403       329            anl a, #00000011B ; We need only the two least significant bits
+04E2 F53E       330            mov Result+1, a ; Save result high.
+04E4 7855       331            mov R0, #55H ; It doesn't matter what we transmit...
+04E6 1204BE     332            lcall DO_SPI_G
+04E9 893D       333            mov Result, R1 ; R1 contains bits 0 to 7. Save result low.
+04EB D2A0       334            setb CE_ADC
+04ED 120507     335            lcall Wait_Second
+04F0 12047B     336            lcall Execute_Result
+04F3 C0E0       337            push acc
+04F5 7405       337            mov a, #5
+04F7 14         337            dec a
+04F8 1200BF     337            lcall ?Set_Cursor_2 ; Select column and row
+04FB D0E0       337            pop acc 
+04FD C000       338            push ar0
+04FF A838       338            mov r0, bcd
+0501 1200C6     338            lcall ?Display_BCD
+0504 D000       338            pop ar0 ; Display on LCD 
+0506 22         339            ret
+0507            340   
+0507            341   ; Used to create a delay of one second
+0507            342   Wait_Second:
+0507 C002       343            push AR2
+0509 7AFA       343            mov R2, #250
+050B 120039     343            lcall ?Wait_Milli_Seconds
+050E D002       343            pop AR2
+0510 C002       344            push AR2
+0512 7AFA       344            mov R2, #250
+0514 120039     344            lcall ?Wait_Milli_Seconds
+0517 D002       344            pop AR2
+0519 C002       345            push AR2
+051B 7AFA       345            mov R2, #250
+051D 120039     345            lcall ?Wait_Milli_Seconds
+0520 D002       345            pop AR2
+0522 C002       346            push AR2
+0524 7AFA       346            mov R2, #250
+0526 120039     346            lcall ?Wait_Milli_Seconds
+0529 D002       346            pop AR2
+052B 22         347            ret  
+052C            348   
+052C            349   ; Main program. Contains the loop that fetches voltage
+052C            350   Main:
+052C 75817F     351       mov SP, #7FH ; Set the stack pointer to the begining of idata
+052F D2AF       352       setb EA
+0531 120088     353       lcall LCD_4bit
+0534 12048E     354       lcall InitSerialPort
+0537 1204B9     355       lcall INIT_SPI 
+053A 12034C     356       lcall Timer2_Init
+053D 75E600     357       mov P0M0, #0
+0540 75E700     358       mov P0M1, #0 ; set pins in biconditional mode
+0543 755D01     359       mov display_mode, #0x01 ; Some initialization
+0546            360       
+0546 C287       361       clr SS_A
+0548 C286       362       clr SS_B
+054A C285       363       clr SS_C
+054C C284       364       clr SS_D
+054E C283       365       clr SS_E
+0550 C282       366       clr SS_F
+0552 C281       367       clr SS_G
+0554 C280       368       clr SS_DP
+0556            369       
+0556 D2A7       370       setb EN_DIG_1
+0558 D2C5       371       setb EN_DIG_2
+055A D2C4       372       setb EN_DIG_3
+055C            373       
+055C C0E0       374            push acc
+055E 7401       374            mov a, #1
+0560 14         374            dec a
+0561 1200C1     374            lcall ?Set_Cursor_1 ; Select column and row
+0564 D0E0       374            pop acc
+0566 C083       375            push dph
+0568 C082       375            push dpl
+056A C0E0       375            push acc
+056C 90046E     375            mov dptr, #LCD_Message
+056F 1200B4     375            lcall ?Send_Constant_String
+0572 D0E0       375            pop acc
+0574 D082       375            pop dpl
+0576 D083       375            pop dph ; Display a constant string on LCD
+0578            376       
+0578            377       ;lcall change_temp_display
+0578            378   
+0578            379   Fetch_Voltage_Loop:
+0578 C0E0       380            push acc
+057A 7401       380            mov a, #1
+057C 14         380            dec a
+057D 1200BF     380            lcall ?Set_Cursor_2 ; Select column and row
+0580 D0E0       380            pop acc
+0582            380   
+0582 C0E0       381            push acc
+0584 7421       381            mov a, #33
+0586 12007E     381            lcall ?WriteData
+0589 D0E0       381            pop acc
+058B C0E0       382            push acc
+058D 7401       382            mov a, #1
+058F 14         382            dec a
+0590 1200BF     382            lcall ?Set_Cursor_2 ; Select column and row
+0593 D0E0       382            pop acc
+0595 C0E0       383            push acc
+0597 741F       383            mov a, #31
+0599 12007E     383            lcall ?WriteData
+059C D0E0       383            pop acc
+059E            384   
+059E 1204D3     385            lcall Fetch_Voltage
+05A1 80D5       386            sjmp Fetch_Voltage_Loop
+05A3            387       
+05A3            388   EN
