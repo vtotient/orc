@@ -1,5 +1,3 @@
-;Project 1 Main-Frame
-;Authors- Lewis Mason, 
 
 $MODLP51
 
@@ -191,12 +189,12 @@ B3		equ 	P2.4		;the signal that toggles settings when
 ;below needs to be changed
 ESTOP	equ 	P0.2
 
-; These ’EQU’ must match the wiring between the microcontroller and ADC
+; These â€™EQUâ€™ must match the wiring between the microcontroller and ADC
 CE_ADC  EQU P2.0	;SS'
 MY_MOSI EQU P2.1	;MOSI
 MY_MISO EQU P2.2	;MISO
 MY_SCLK EQU P2.3 	;CLK
-; These ’EQU’ must match the wiring between the microcontroller and LCD
+; These â€™EQUâ€™ must match the wiring between the microcontroller and LCD
 LCD_RS 	equ 	P1.1
 LCD_RW 	equ 	P1.2
 LCD_E  	equ 	P1.3		;this is the pin that enables the menu LCD	(clr)
